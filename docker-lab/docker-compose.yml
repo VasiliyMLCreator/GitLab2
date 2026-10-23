@@ -1,0 +1,29 @@
+services:
+  frontend:
+    build: ./frontend
+    image: texnovasiliy/docker-lab-frontend:1.0
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    networks:
+      - internal_network
+
+  api:
+    image: containous/whoami
+    networks:
+      - internal_network
+
+  logger:
+    image: busybox
+    command: sh -c 'while true; do echo "$$(date +%Y-%m-%dT%H:%M:%S) logger is alive" >> /data/log.txt; sleep 2; done'
+    volumes:
+      - logger_data:/data
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+
+volumes:
+  logger_data:
