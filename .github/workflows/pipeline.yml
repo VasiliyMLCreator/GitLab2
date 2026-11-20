@@ -1,0 +1,63 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate HTML
+        run: npx --yes htmlhint@1.1.4 index.html
+
+      - name: Build Docker image
+        run: docker build -t ci-cd-lab:test .
+
+      - name: Start container
+        run: docker run -d --name ci-cd-lab -p 8080:80 ci-cd-lab:test
+
+      - name: Smoke test container
+        run: |
+          set -euo pipefail
+          curl --retry 10 --retry-connrefused --retry-delay 2 -fsS http://localhost:8080/ -o /tmp/page.html
+          grep -q 'Шкуратов Василий Сергеевич' /tmp/page.html
+          grep -q 'VasiliyMLCreator' /tmp/page.html
+          echo OK
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f ci-cd-lab || true
+
+  release:
+    name: release
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          docker build -t "$IMAGE:latest" -t "$IMAGE:${GITHUB_SHA::12}" .
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${GITHUB_SHA::12}"
