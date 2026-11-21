@@ -1,0 +1,66 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check HTML
+        run: npx --yes htmlhint@1.1.4 docker-lab/frontend/index.html
+
+      - name: Build Docker
+        run: docker build -t lab:test ./docker-lab/frontend
+
+      - name: Run Docker
+        run: docker run -d --name lab -p 8080:80 lab:test
+
+      - name: Smoke test container
+        run: |
+          set -e
+          sleep 3
+          curl -fsS http://localhost:8080/ -o page.html
+          grep -q "Шкуратов Василий Сергеевич" page.html
+          grep -q "VasiliyMLCreator" page.html
+          echo "OK"
+
+      - name: Stop Docker
+        if: always()
+        run: docker rm -f lab || true
+
+  release:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build -t "$IMAGE:latest" ./docker-lab/frontend
+          docker push "$IMAGE:latest"
